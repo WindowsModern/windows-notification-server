@@ -47,5 +47,8 @@
     <ClInclude Include="utlities.h">
       <Filter>头文件\libs</Filter>
     </ClInclude>
+    <ClInclude Include="crisect.h">
+      <Filter>头文件\libs</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

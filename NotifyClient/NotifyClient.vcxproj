@@ -154,6 +154,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="crisect.h" />
     <ClInclude Include="debug.h" />
     <ClInclude Include="encoding.h" />
     <ClInclude Include="filesys.h" />

@@ -9,6 +9,7 @@
 #include <sstream>
 #include <locale>
 #include <cwctype>
+#include "crisect.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "kernel32.lib")
@@ -26,6 +27,8 @@
 typedef HRESULT (*PFN_NhInstallHook)   ();
 typedef HRESULT (*PFN_NhUninstallHook) ();
 typedef BOOL (*PFN_NhHookExists)    ();
+typedef void (*PFN_NhForceReset) ();
+typedef BOOL (*PFN_NhIsHookAlive)    ();
 
 // ============================================================
 // 全局状态
@@ -38,10 +41,17 @@ static HMODULE g_hDll = NULL;
 static PFN_NhInstallHook   g_pfnInstallHook = NULL;
 static PFN_NhUninstallHook g_pfnUninstallHook = NULL;
 static PFN_NhHookExists    g_pfnHookExists = NULL;
+static PFN_NhForceReset g_pfnForceReset = NULL;
+static PFN_NhIsHookAlive g_pfnIsHookAlive = NULL;
 
 static bool g_quiet = false;
 static bool g_hookState = false;
 static int64_t g_hookRefCount = 0;
+
+static HANDLE g_hExplorerWatchThread = NULL;
+
+static CriticalSection g_hookLock;
+static bool g_hookLockInit = false;
 
 // ============================================================
 // 输出辅助
@@ -138,8 +148,9 @@ static bool LoadHookDll ()
 	g_pfnInstallHook = (PFN_NhInstallHook)GetProcAddress (g_hDll, "NhInstallHook");
 	g_pfnUninstallHook = (PFN_NhUninstallHook)GetProcAddress (g_hDll, "NhUninstallHook");
 	g_pfnHookExists = (PFN_NhHookExists)GetProcAddress (g_hDll, "NhHookExists");
-
-	if (!g_pfnInstallHook || !g_pfnUninstallHook || !g_pfnHookExists)
+	g_pfnForceReset = (PFN_NhForceReset)GetProcAddress (g_hDll, "NhForceReset");
+	g_pfnIsHookAlive = (PFN_NhIsHookAlive)GetProcAddress (g_hDll, "NhIsHookAlive");
+	if (!g_pfnInstallHook || !g_pfnUninstallHook || !g_pfnHookExists || !g_pfnForceReset || !g_pfnIsHookAlive)
 	{
 		OutputError (L"Failed to resolve exports in NotifyHook.dll");
 		FreeLibrary (g_hDll);
@@ -149,15 +160,109 @@ static bool LoadHookDll ()
 	return true;
 }
 
+// 打开承载 Shell_TrayWnd 的进程同步句柄
+static HANDLE OpenExplorerSyncHandle ()
+{
+	HWND hTray = FindWindowW (L"Shell_TrayWnd", nullptr);
+	if (!hTray) return NULL;
+
+	DWORD pid = 0;
+	GetWindowThreadProcessId (hTray, &pid);
+	if (!pid) return NULL;
+
+	return OpenProcess (SYNCHRONIZE, FALSE, pid);
+}
+
+// 等待新的托盘窗口出现（带超时 / 停止事件响应）
+static bool WaitForNewTrayWindow (DWORD timeoutMs)
+{
+	DWORD start = GetTickCount ();
+	while (WaitForSingleObject (g_hStopEvent, 0) != WAIT_OBJECT_0)
+	{
+		HWND hTray = FindWindowW (L"Shell_TrayWnd", nullptr);
+		if (hTray && IsWindowVisible (hTray)) return true;
+		if (GetTickCount () - start > timeoutMs) return false;
+		Sleep (200);
+	}
+	return false;
+}
+
+static DWORD WINAPI ExplorerWatchThread (LPVOID)
+{
+	Output (L"[Watch] Explorer watch thread started.");
+	bool pendingReinstall = false;
+
+	while (WaitForSingleObject (g_hStopEvent, 0) != WAIT_OBJECT_0)
+	{
+		HANDLE hExplorer = OpenExplorerSyncHandle ();
+
+		if (hExplorer)
+		{
+			HANDLE handles [2] = { hExplorer, g_hStopEvent };
+			DWORD wr = WaitForMultipleObjects (2, handles, FALSE, INFINITE);
+			CloseHandle (hExplorer);
+			if (wr == WAIT_OBJECT_0 + 1) break;      // 停止事件
+			if (wr != WAIT_OBJECT_0) continue;
+
+			Output (L"[Watch] explorer.exe terminated. Resetting hook state...");
+			if (g_pfnForceReset) g_pfnForceReset ();
+			{
+				CreateScopedLock (g_hookLock);
+				g_hookState = false;
+				// 只有计数值 > 0 才标记"待重装"
+				pendingReinstall = (g_hookRefCount > 0);
+			}
+			WaitForNewTrayWindow (15000);
+		}
+		else
+		{
+			Sleep (500);
+		}
+
+		// 周期性尝试重装（含首次进入和失败重试）
+		if (pendingReinstall && WaitForSingleObject (g_hStopEvent, 0) != WAIT_OBJECT_0)
+		{
+			Sleep (800);   // 给 explorer 一点初始化时间
+			if (g_pfnInstallHook)
+			{
+				HRESULT hr = g_pfnInstallHook ();
+				if (SUCCEEDED (hr))
+				{
+					CreateScopedLock (g_hookLock);
+					g_hookState = true;
+					int64_t rc = g_hookRefCount;
+					Output (L"[Watch] Hook reinstalled on new explorer. RefCount=" + std::to_wstring (rc));
+					pendingReinstall = false;
+				}
+				else
+				{
+					Output (L"[Watch] Reinstall failed, will retry. HRESULT=0x" + ToHex (hr));
+					Sleep (2000);   // 重试节流
+				}
+			}
+		}
+	}
+
+	Output (L"[Watch] Explorer watch thread exiting.");
+	return 0;
+}
+
 // ============================================================
 // 命令实现
 // ============================================================
 static std::wstring CommandRegister ()
 {
+	CreateScopedLock (g_hookLock);
 	if (!LoadHookDll ()) return L"Failed to load NotifyHook.dll";
 
-	if (g_pfnHookExists ())
-		return L"Hook is already registered";
+	if (!g_pfnIsHookAlive || !g_pfnIsHookAlive ())
+	{
+		HRESULT hr = g_pfnInstallHook ();
+		if (FAILED (hr))
+			return L"Failed to register hook. HRESULT=0x" + ToHex (hr);
+		g_hookState = true;
+	}
+	else return L"Hook is already registered";
 
 	HRESULT hr = g_pfnInstallHook ();
 	if (SUCCEEDED (hr))
@@ -171,6 +276,7 @@ static std::wstring CommandRegister ()
 
 static std::wstring CommandUnregister ()
 {
+	CreateScopedLock (g_hookLock);
 	if (!g_hDll)
 		return L"DLL not loaded; hook is not registered";
 
@@ -189,9 +295,10 @@ static std::wstring CommandUnregister ()
 // 计次注册：+1；钩子未安装时才真正安装
 static std::wstring CommandRegisterCounted ()
 {
+	CreateScopedLock (g_hookLock);
 	if (!LoadHookDll ()) return L"Failed to load NotifyHook.dll";
 
-	if (!g_pfnHookExists ())
+	if (!g_pfnIsHookAlive || !g_pfnIsHookAlive ())
 	{
 		HRESULT hr = g_pfnInstallHook ();
 		if (FAILED (hr))
@@ -206,6 +313,7 @@ static std::wstring CommandRegisterCounted ()
 // 计次反注册：-1；计数降到 0 时才真正卸载
 static std::wstring CommandUnregisterCounted ()
 {
+	CreateScopedLock (g_hookLock);
 	if (!g_hDll)
 		return L"DLL not loaded; hook is not registered";
 
@@ -243,6 +351,7 @@ static std::wstring CommandUnregisterCounted ()
 
 static std::wstring CommandShow ()
 {
+	CreateScopedLock (g_hookLock);
 	std::wstringstream ss;
 	ss << L"Instance PID: " << GetCurrentProcessId () << L"\r\n";
 	ss << L"DLL path: " << GetHookDllPath () << L"\r\n";
@@ -504,11 +613,19 @@ static BOOL WINAPI ConsoleCtrlHandler (DWORD ctrlType)
 // ============================================================
 static int RunAsPrimary (const std::vector<std::wstring> &commands)
 {
+	g_hookLockInit = true;
+
 	Output (L"NotifyHook injector started as PRIMARY instance (PID=" +
 		std::to_wstring (GetCurrentProcessId ()) + L")");
 
 	// 加载 DLL 并检查当前状态
 	LoadHookDll ();
+	if (g_hDll && g_pfnIsHookAlive && g_pfnIsHookAlive ())
+	{
+		g_hookState = true;
+		g_hookRefCount = 1;   // 保守假设：至少有一个旧引用，符合"已注册状态"
+		Output (L"Hook is currently REGISTERED (assumed RefCount=1)");
+	}
 	if (g_hDll && g_pfnHookExists && g_pfnHookExists ())
 	{
 		g_hookState = true;
@@ -526,6 +643,12 @@ static int RunAsPrimary (const std::vector<std::wstring> &commands)
 	{
 		OutputError (L"Failed to start pipe server thread");
 		return 1;
+	}
+
+	g_hExplorerWatchThread = CreateThread (NULL, 0, ExplorerWatchThread, NULL, 0, NULL);
+	if (!g_hExplorerWatchThread)
+	{
+		OutputError (L"Failed to start explorer watch thread");   // 非致命，继续
 	}
 
 	SetConsoleCtrlHandler (ConsoleCtrlHandler, TRUE);
@@ -552,6 +675,13 @@ static int RunAsPrimary (const std::vector<std::wstring> &commands)
 
 	Output (L"Shutting down...");
 
+	if (g_hExplorerWatchThread)
+	{
+		WaitForSingleObject (g_hExplorerWatchThread, 3000);
+		CloseHandle (g_hExplorerWatchThread);
+		g_hExplorerWatchThread = NULL;
+	}
+
 	// 退出时取消注册
 	if (g_hookState && g_pfnUninstallHook)
 	{
@@ -577,6 +707,9 @@ static int RunAsPrimary (const std::vector<std::wstring> &commands)
 	if (g_hDll) { FreeLibrary (g_hDll);       g_hDll = NULL; }
 
 	Output (L"Injector terminated.");
+
+	if (g_hookLockInit) { g_hookLockInit = false; }
+
 	return 0;
 }
 

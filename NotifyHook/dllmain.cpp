@@ -319,7 +319,7 @@ LRESULT CALLBACK SubclassWndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 					{
 						const BYTE *pNid = base + 0x08;
 						DWORD cbSize = *(const DWORD *)pNid;   // cbSize 始终在偏移 0，安全
-						DebugOutputBytes (pNid, cbSize);
+						//DebugOutputBytes (pNid, cbSize);
 						const bool is64 = IsNotifyIconData64 (cbSize);
 						const size_t uFlagsOff = is64 ? 20 : 12;
 						UINT uFlags = *(const UINT *)(pNid + uFlagsOff);
@@ -359,8 +359,13 @@ LRESULT CALLBACK CallWndProc (INT iCode, WPARAM wParam, LPARAM lParam)
 HRESULT NhInstallHook ()
 {
 	DebugOutputString ("[NhInstallHook] Entered");
+	auto newTrayWnd = FindWindowW (L"Shell_TrayWnd", nullptr);
+	if (newTrayWnd != g_hWndTray)
+	{
+		g_hWndTray = newTrayWnd;
+		g_hHook = nullptr;
+	}
 	if (g_hHook) return S_OK;
-	g_hWndTray = FindWindowW (L"Shell_TrayWnd", nullptr);
 	if (!g_hWndTray) return HRESULT_FROM_WIN32 (ERROR_INVALID_WINDOW_HANDLE);
 	DWORD dwProcessId = 0;
 	auto dwThreadId = GetWindowThreadProcessId (g_hWndTray, &dwProcessId);
@@ -386,8 +391,14 @@ HRESULT NhUninstallHook ()
 {
 	DebugOutputString ("[NhInstallHook] NhUninstallHook");
 	if (!g_hHook) return S_OK;
+	auto newTrayWnd = FindWindowW (L"Shell_TrayWnd", nullptr);
+	if (g_hWndTray != newTrayWnd)
+	{
+		g_hHook = nullptr;
+		return S_OK;
+	}
 	SendMessageW (g_hWndTray, g_uUnregSubclassMsg, 0, 0);
-	g_uUnregSubclassMsg;
+	g_uUnregSubclassMsg = 0;
 	auto bResult = UnhookWindowsHookEx (g_hHook);
 	if (bResult)
 	{
@@ -398,6 +409,22 @@ HRESULT NhUninstallHook ()
 	return HRESULT_FROM_WIN32 (GetLastError ());
 }
 BOOL NhHookExists () { return g_hHook != nullptr; }
+void NhForceReset ()
+{
+	g_hHook = nullptr;
+	g_hWndTray = nullptr;
+	g_bHasSubclass = false;
+	g_uUnregSubclassMsg = 0;
+	DebugOutputString ("[NhForceReset] Hook state forcibly reset");
+}
+BOOL NhIsHookAlive ()
+{
+	if (!g_hHook) return false;
+	auto newTrayWnd = FindWindowW (L"Shell_TrayWnd", nullptr);
+	if (g_hWndTray != newTrayWnd) return false;
+	if (!newTrayWnd) return false;
+	return true;
+}
 
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,

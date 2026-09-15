@@ -19,6 +19,8 @@
 EXTERN_C NHAPI HRESULT NhInstallHook ();
 EXTERN_C NHAPI HRESULT NhUninstallHook ();
 EXTERN_C NHAPI BOOL NhHookExists ();
+EXTERN_C NHAPI void NhForceReset ();
+EXTERN_C NHAPI BOOL NhIsHookAlive ();
 
 #ifndef DEFAULT_VALUE
 #if __cplusplus
