@@ -41,6 +41,7 @@ static PFN_NhHookExists    g_pfnHookExists = NULL;
 
 static bool g_quiet = false;
 static bool g_hookState = false;
+static int64_t g_hookRefCount = 0;
 
 // ============================================================
 // 输出辅助
@@ -162,6 +163,7 @@ static std::wstring CommandRegister ()
 	if (SUCCEEDED (hr))
 	{
 		g_hookState = true;
+		if (g_hookRefCount <= 0) g_hookRefCount = 1;
 		return L"Hook registered successfully. HRESULT=0x" + ToHex (hr);
 	}
 	return L"Failed to register hook. HRESULT=0x" + ToHex (hr);
@@ -179,9 +181,64 @@ static std::wstring CommandUnregister ()
 	if (SUCCEEDED (hr))
 	{
 		g_hookState = false;
+		g_hookRefCount = 0;
 		return L"Hook unregistered successfully. HRESULT=0x" + ToHex (hr);
 	}
 	return L"Failed to unregister hook. HRESULT=0x" + ToHex (hr);
+}
+// 计次注册：+1；钩子未安装时才真正安装
+static std::wstring CommandRegisterCounted ()
+{
+	if (!LoadHookDll ()) return L"Failed to load NotifyHook.dll";
+
+	if (!g_pfnHookExists ())
+	{
+		HRESULT hr = g_pfnInstallHook ();
+		if (FAILED (hr))
+			return L"Failed to register hook. HRESULT=0x" + ToHex (hr);
+		g_hookState = true;
+	}
+
+	++ g_hookRefCount;
+	return L"Hook ref-count registered. RefCount=" + std::to_wstring (g_hookRefCount);
+}
+
+// 计次反注册：-1；计数降到 0 时才真正卸载
+static std::wstring CommandUnregisterCounted ()
+{
+	if (!g_hDll)
+		return L"DLL not loaded; hook is not registered";
+
+	if (g_hookRefCount <= 0)
+	{
+		g_hookRefCount = 0;
+		// 若钩子不知为何仍存在，一并清掉
+		if (g_pfnHookExists && g_pfnHookExists ())
+		{
+			g_pfnUninstallHook ();
+			g_hookState = false;
+		}
+		return L"Hook ref count is already 0; nothing to unregister";
+	}
+
+	-- g_hookRefCount;
+
+	if (g_hookRefCount == 0)
+	{
+		if (g_pfnHookExists && g_pfnHookExists ())
+		{
+			HRESULT hr = g_pfnUninstallHook ();
+			if (FAILED (hr))
+			{
+				++ g_hookRefCount;  // 回滚
+				return L"Failed to unregister hook. HRESULT=0x" + ToHex (hr);
+			}
+		}
+		g_hookState = false;
+		return L"Hook ref count reached 0; hook unregistered";
+	}
+
+	return L"Hook ref-count unregistered. RefCount=" + std::to_wstring (g_hookRefCount);
 }
 
 static std::wstring CommandShow ()
@@ -192,11 +249,13 @@ static std::wstring CommandShow ()
 	if (g_hDll && g_pfnHookExists)
 	{
 		BOOL exists = g_pfnHookExists ();
-		ss << L"Hook state: " << (exists ? L"REGISTERED" : L"NOT REGISTERED");
+		ss << L"Hook state: " << (exists ? L"REGISTERED" : L"NOT REGISTERED") << L"\r\n";
+		ss << L"Hook ref count: " << g_hookRefCount;
 	}
 	else
 	{
-		ss << L"Hook state: DLL NOT LOADED";
+		ss << L"Hook state: DLL NOT LOADED" << L"\r\n";
+		ss << L"Hook ref count: " << g_hookRefCount;
 	}
 	return ss.str ();
 }
@@ -205,14 +264,16 @@ static std::wstring CommandHelp ()
 {
 	return
 		L"Available commands (prefix '/' or '-', case-insensitive):\r\n"
-		L"  register    - Register the Shell_NotifyIcon hook\r\n"
-		L"  unregister  - Unregister the hook\r\n"
-		L"  show        - Show current hook state and instance info\r\n"
-		L"  help        - Show this help\r\n"
-		L"  clear       - Clear the console screen\r\n"
-		L"  quiet       - Disable output (differentiated)\r\n"
-		L"  verbose     - Enable output (default, differentiated)\r\n"
-		L"  exit        - Shut down the primary instance (aliases: quit, shutdown)\r\n"
+		L"  register        - Register the Shell_NotifyIcon hook (non-counted)\r\n"
+		L"  unregister      - Unregister the hook (force uninstall, reset ref count)\r\n"
+		L"  register-count  - Register the hook with reference counting (+1)\r\n"
+		L"  unregister-count- Unregister the hook with reference counting (-1)\r\n"
+		L"  show            - Show current hook state and ref count\r\n"
+		L"  help            - Show this help\r\n"
+		L"  clear           - Clear the console screen\r\n"
+		L"  quiet           - Disable output (differentiated)\r\n"
+		L"  verbose         - Enable output (default, differentiated)\r\n"
+		L"  exit            - Shut down the primary instance (aliases: quit, shutdown)\r\n"
 		L"\r\n"
 		L"No argument:  Become primary instance if none exists, otherwise query state.";
 }
@@ -271,6 +332,14 @@ static std::wstring ProcessCommand (const std::wstring &rawCmd)
 	std::wstring cmd = NormalizeCommand (rawCmd);
 	if (cmd == L"register")                     return CommandRegister ();
 	if (cmd == L"unregister")                   return CommandUnregister ();
+	if (cmd == L"register-count"
+		|| cmd == L"regcount"
+		|| cmd == L"rreg"
+		|| cmd == L"register-ref")                 return CommandRegisterCounted ();
+	if (cmd == L"unregister-count"
+		|| cmd == L"unregcount"
+		|| cmd == L"runreg"
+		|| cmd == L"unregister-ref")               return CommandUnregisterCounted ();
 	if (cmd == L"show")                         return CommandShow ();
 	if (cmd == L"help")                         return CommandHelp ();
 	if (cmd == L"clear")                        return CommandClear ();
@@ -493,6 +562,7 @@ static int RunAsPrimary (const std::vector<std::wstring> &commands)
 			Output (L"Failed to unregister hook on exit. HRESULT=0x" + ToHex (hr));
 		g_hookState = false;
 	}
+	g_hookRefCount = 0;
 
 	// 收尾
 	SetEvent (g_hStopEvent);
