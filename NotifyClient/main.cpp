@@ -330,8 +330,8 @@ static std::wstring NormalizeCommand (const std::wstring &arg)
 static std::wstring ProcessCommand (const std::wstring &rawCmd)
 {
 	std::wstring cmd = NormalizeCommand (rawCmd);
-	if (cmd == L"register")                     return CommandRegister ();
-	if (cmd == L"unregister")                   return CommandUnregister ();
+	if (cmd == L"register" || cmd == L"reg")                     return CommandRegister ();
+	if (cmd == L"unregister" || cmd == L"unreg")                   return CommandUnregister ();
 	if (cmd == L"register-count"
 		|| cmd == L"regcount"
 		|| cmd == L"rreg"
@@ -339,6 +339,7 @@ static std::wstring ProcessCommand (const std::wstring &rawCmd)
 	if (cmd == L"unregister-count"
 		|| cmd == L"unregcount"
 		|| cmd == L"runreg"
+		|| cmd == L"rureg"
 		|| cmd == L"unregister-ref")               return CommandUnregisterCounted ();
 	if (cmd == L"show")                         return CommandShow ();
 	if (cmd == L"help")                         return CommandHelp ();
