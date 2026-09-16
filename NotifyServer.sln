@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.37531.7 d17.14
+# Visual Studio 14
+VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NotifyServer", "NotifyClient\NotifyClient.vcxproj", "{21DDC853-8E4C-4994-B0F9-76C7D3EE2D5A}"
 	ProjectSection(ProjectDependencies) = postProject
@@ -11,6 +11,8 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NotifyHook", "NotifyHook\NotifyHook.vcxproj", "{CA6D4B83-7E85-4437-A38A-D54ED1AF558E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PipeTest", "PipeTest\PipeTest.csproj", "{D1D47383-633A-4F2E-8087-962DE54485BF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestCenter", "TestCenter\TestCenter.csproj", "{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -68,6 +70,22 @@ Global
 		{D1D47383-633A-4F2E-8087-962DE54485BF}.Release|x64.Build.0 = Release|Any CPU
 		{D1D47383-633A-4F2E-8087-962DE54485BF}.Release|x86.ActiveCfg = Release|Any CPU
 		{D1D47383-633A-4F2E-8087-962DE54485BF}.Release|x86.Build.0 = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|ARM.ActiveCfg = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|ARM.Build.0 = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|x64.Build.0 = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Debug|x86.Build.0 = Debug|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|ARM.ActiveCfg = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|ARM.Build.0 = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|x64.ActiveCfg = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|x64.Build.0 = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|x86.ActiveCfg = Release|Any CPU
+		{4DE66FF2-1CA5-4757-AF4D-7DB98A363E02}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
