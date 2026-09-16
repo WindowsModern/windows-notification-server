@@ -24,11 +24,11 @@
 // ============================================================
 // 导出函数类型
 // ============================================================
-typedef HRESULT (*PFN_NhInstallHook)   ();
+typedef HRESULT (*PFN_NhInstallHook) ();
 typedef HRESULT (*PFN_NhUninstallHook) ();
-typedef BOOL (*PFN_NhHookExists)    ();
+typedef BOOL (*PFN_NhHookExists) ();
 typedef void (*PFN_NhForceReset) ();
-typedef BOOL (*PFN_NhIsHookAlive)    ();
+typedef BOOL (*PFN_NhIsHookAlive) ();
 
 // ============================================================
 // 全局状态
