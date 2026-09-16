@@ -373,16 +373,18 @@ static std::wstring CommandHelp ()
 {
 	return
 		L"Available commands (prefix '/' or '-', case-insensitive):\r\n"
-		L"  register        - Register the Shell_NotifyIcon hook (non-counted)\r\n"
-		L"  unregister      - Unregister the hook (force uninstall, reset ref count)\r\n"
-		L"  register-count  - Register the hook with reference counting (+1)\r\n"
-		L"  unregister-count- Unregister the hook with reference counting (-1)\r\n"
-		L"  show            - Show current hook state and ref count\r\n"
-		L"  help            - Show this help\r\n"
-		L"  clear           - Clear the console screen\r\n"
-		L"  quiet           - Disable output (differentiated)\r\n"
-		L"  verbose         - Enable output (default, differentiated)\r\n"
-		L"  exit            - Shut down the primary instance (aliases: quit, shutdown)\r\n"
+		L"  register              - Register the Shell_NotifyIcon hook (non-counted)\r\n"
+		L"  unregister            - Unregister the hook (force uninstall, reset ref count)\r\n"
+		L"  unregister-exit       - Unregister the hook (force uninstall, reset ref count), and shut down the injector if the hook is gone\r\n"
+		L"  register-count        - Register the hook with reference counting (+1)\r\n"
+		L"  unregister-count      - Unregister the hook with reference counting (-1)\r\n"
+		L"  unregister-count-exit - Same as unregister-count, and shut down the injector when ref count reaches 0\r\n"
+		L"  show                  - Show current hook state and ref count\r\n"
+		L"  help                  - Show this help\r\n"
+		L"  clear                 - Clear the console screen\r\n"
+		L"  quiet                 - Disable output (differentiated)\r\n"
+		L"  verbose               - Enable output (default, differentiated)\r\n"
+		L"  exit                  - Shut down the primary instance (aliases: quit, shutdown)\r\n"
 		L"\r\n"
 		L"No argument:  Become primary instance if none exists, otherwise query state.";
 }
@@ -421,6 +423,32 @@ static std::wstring CommandExit ()
 	return L"Injector shutdown requested. Goodbye!";
 }
 
+static std::wstring CommandUnregisterExit ()
+{
+	auto ret = CommandUnregister ();
+	{
+		CreateScopedLock (g_hookLock);
+		if (g_hDll && g_pfnHookExists && !g_pfnHookExists ())
+		{
+			ret += L"\n" + CommandExit ();
+		}
+	}
+	return ret;
+
+}
+static std::wstring CommandUnregisterCountedExit ()
+{
+	auto ret = CommandUnregisterCounted ();
+	{
+		CreateScopedLock (g_hookLock);
+		if (g_hookRefCount <= 0)
+		{
+			ret += L"\n" + CommandExit ();
+		}
+	}
+	return ret;
+}
+
 // ============================================================
 // 命令归一化与分发
 // ============================================================
@@ -441,6 +469,9 @@ static std::wstring ProcessCommand (const std::wstring &rawCmd)
 	std::wstring cmd = NormalizeCommand (rawCmd);
 	if (cmd == L"register" || cmd == L"reg")                     return CommandRegister ();
 	if (cmd == L"unregister" || cmd == L"unreg")                   return CommandUnregister ();
+	if (cmd == L"unregister-exit" 
+		|| cmd == L"unregex" 
+		|| cmd == L"unregexit")                   return CommandUnregisterExit ();
 	if (cmd == L"register-count"
 		|| cmd == L"regcount"
 		|| cmd == L"rreg"
@@ -450,6 +481,11 @@ static std::wstring ProcessCommand (const std::wstring &rawCmd)
 		|| cmd == L"runreg"
 		|| cmd == L"rureg"
 		|| cmd == L"unregister-ref")               return CommandUnregisterCounted ();
+	if (cmd == L"unregister-count-exit"
+		|| cmd == L"unregcountexit"
+		|| cmd == L"runregexit"
+		|| cmd == L"ruregex"
+		|| cmd == L"unregister-ref-exit")               return CommandUnregisterCountedExit ();
 	if (cmd == L"show")                         return CommandShow ();
 	if (cmd == L"help")                         return CommandHelp ();
 	if (cmd == L"clear")                        return CommandClear ();
